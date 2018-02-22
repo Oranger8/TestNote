@@ -1,26 +1,44 @@
 package my.orange.testnote;
 
-import javafx.geometry.Pos;
-import javafx.scene.control.TextArea;
-import javafx.scene.control.TextField;
-import javafx.scene.layout.VBox;
+import javafx.beans.property.ObjectProperty;
+import javafx.beans.property.SimpleObjectProperty;
+import javafx.beans.property.SimpleStringProperty;
+import javafx.beans.property.StringProperty;
+import javafx.util.Pair;
 
-class Note extends VBox {
+import java.time.LocalDateTime;
 
-    Note(String date, String text) {
-        TextField field = new TextField(date);
-        field.setDisable(true);
-        field.setAlignment(Pos.CENTER);
-        field.setPrefWidth(120);
-        getChildren().add(field);
+public class Note {
 
-        TextArea area = new TextArea(text);
-        area.textProperty().addListener((observable, oldValue, newValue) -> {
-            if (newValue.length() > 100) area.setText(oldValue);
-        });
-        area.setEditable(false);
-        area.setPrefSize(120, 110);
-        area.setWrapText(true);
-        getChildren().add(area);
+    private ObjectProperty<LocalDateTime> date;
+    private StringProperty text;
+
+    public Note(LocalDateTime date, String text) {
+        this.date = new SimpleObjectProperty<>(date);
+        this.text = new SimpleStringProperty(text);
+    }
+
+    public Note(Pair<LocalDateTime, String> pair) {
+        this(pair.getKey(), pair.getValue());
+    }
+
+    public String getText() {
+        return text.get();
+    }
+
+    public LocalDateTime getDate() {
+        return date.get();
+    }
+
+    public StringProperty textProperty() {
+        return text;
+    }
+
+    public static String dateToString(LocalDateTime localDateTime) {
+        return localDateTime.toLocalDate() + " " + localDateTime.getHour() + ":" + localDateTime.getMinute();
+    }
+
+    public static LocalDateTime stringToDate(String date) {
+        return LocalDateTime.parse(date.replace(' ', 'T'));
     }
 }

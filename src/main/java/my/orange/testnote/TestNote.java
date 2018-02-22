@@ -1,78 +1,109 @@
 package my.orange.testnote;
 
 import javafx.application.Application;
-import javafx.application.Platform;
-import javafx.event.ActionEvent;
-import javafx.event.EventHandler;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.concurrent.Task;
+import javafx.fxml.FXMLLoader;
+import javafx.scene.Scene;
+import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonType;
-import javafx.scene.control.Dialog;
-import javafx.scene.control.Label;
-import javafx.scene.control.TextArea;
-import javafx.scene.layout.VBox;
+import javafx.scene.control.DialogPane;
 import javafx.stage.Stage;
-import javafx.util.Callback;
-import javafx.util.Pair;
+import my.orange.testnote.controller.MainSceneController;
 
-import java.util.Date;
-import java.util.Objects;
-import java.util.Optional;
+import java.io.IOException;
+import java.sql.SQLException;
+import java.util.List;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
-public class TestNote extends Application implements EventHandler<ActionEvent> {
+public class TestNote extends Application {
 
-    private MainScene scene;
+    private ObservableList<Note> notes;
+    private SQLHandler sql;
+
+    private Executor executor;
 
     public static void main(String[] args) {
         launch(args);
     }
 
     public void start(Stage primaryStage) throws Exception {
+        try {
+            sql = new SQLHandler();
+        } catch (IOException e) {
+            new Alert(Alert.AlertType.ERROR, e.getMessage(), ButtonType.OK).showAndWait();
+            System.exit(1);
+        } catch (SQLException e) {
+            new Alert(Alert.AlertType.ERROR, "Database is unreachable", ButtonType.OK).showAndWait();
+            System.exit(1);
+        }
+        notes = FXCollections.observableArrayList();
+        executor = Executors.newFixedThreadPool(1, r -> {
+            Thread t = new Thread(r);
+            t.setDaemon(true);
+            return t;
+        });
+
         primaryStage.setTitle("TestNote");
 
-        scene = new MainScene(this);
-
+        FXMLLoader loader = new FXMLLoader(getClass().getResource("/fxml/mainscene.fxml"));
+        Scene scene = new Scene(loader.load());
+        MainSceneController sceneController = loader.getController();
         primaryStage.setScene(scene);
         primaryStage.show();
 
-        primaryStage.setOnCloseRequest(event -> Platform.runLater(SQLHandler::disconnect));
+        FXMLLoader dialogLoader = new FXMLLoader(getClass().getResource("/fxml/dialog.fxml"));
+        DialogPane dialogPane = dialogLoader.load();
 
-        SQLHandler.connect();
-        Platform.runLater(() -> {
-            for (Note o : Objects.requireNonNull(SQLHandler.getAllNotes())) scene.addNote(o);
-        });
-        primaryStage.setMinWidth(560);
-        primaryStage.setMinHeight(390);
-        primaryStage.setMaxWidth(560);
+
+        Task<List<Note>> getAllTask = new GetAllTask();
+        executor.execute(getAllTask);
+
+        sceneController.set(this, dialogPane);
+    }
+
+    public ObservableList<Note> getNotes() {
+        return notes;
+    }
+
+    public void addNote(Note note) {
+        executor.execute(new AddTask(note));
     }
 
     @Override
-    public void handle(ActionEvent event) {
-        Dialog dialog = new Dialog();
-        dialog.setTitle("New note");
-        dialog.setHeaderText("Type a new note");
-        dialog.getDialogPane().getButtonTypes().add(ButtonType.APPLY);
-
-        VBox vBox = new VBox();
-        TextArea area = new TextArea();
-        area.setWrapText(true);
-        area.textProperty().addListener((observable, oldValue, newValue) -> {
-            if (newValue.length() > 100) area.setText(oldValue);
-        });
-        Label label = new Label(new Date(System.currentTimeMillis()).toString());
-        vBox.getChildren().addAll(label, area);
-        dialog.getDialogPane().setContent(vBox);
-        Platform.runLater(area::requestFocus);
-        dialog.setResultConverter(button -> {
-            if (button == ButtonType.APPLY) return new Pair<>(label.getText(), area.getText());
-            return null;
-        });
-
-        Optional<Pair<String, String>> result = dialog.showAndWait();
-        result.ifPresent(stringStringPair -> newNote(stringStringPair.getKey(), stringStringPair.getValue()));
+    public void stop() {
+        if (sql != null) sql.disconnect();
     }
 
-    private void newNote(String date, String note) {
-        Platform.runLater(() -> {
-            if (SQLHandler.addNote(date, note)) scene.addNote(new Note(date, note));
-        });
+    class GetAllTask extends Task<List<Note>> {
+
+        GetAllTask() {
+            setOnSucceeded(event -> notes.addAll(GetAllTask.this.getValue()));
+            setOnFailed(event -> GetAllTask.this.getException().printStackTrace());
+        }
+
+        @Override
+        protected List<Note> call() throws Exception {
+            return sql.getAllNotes();
+        }
+    }
+
+    class AddTask extends Task {
+
+        private Note note;
+
+        AddTask(Note note) {
+            this.note = note;
+            setOnSucceeded(event -> notes.add(note));
+            setOnFailed(event -> AddTask.this.getException().printStackTrace());
+        }
+
+        @Override
+        protected Object call() throws Exception {
+            sql.addNote(note);
+            return null;
+        }
     }
 }

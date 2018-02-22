@@ -1,58 +1,77 @@
 package my.orange.testnote;
 
+import java.io.*;
 import java.sql.*;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
 public class SQLHandler {
 
-    private static Connection connection;
-    private static Statement statement;
-    private static PreparedStatement preparedStatement;
+    private static final String DATABASE_URL = "jdbc:sqlite:data.db";
+    private static final String PREPARED_STATEMENT = "INSERT INTO NOTES (DATE, NOTE) VALUES (?, ?);";
 
-    protected static void connect() throws ClassNotFoundException, SQLException {
-        Class.forName("org.sqlite.JDBC");
-        connection = DriverManager.getConnection("jdbc:sqlite:data.db");
-        statement = connection.createStatement();
-        preparedStatement = connection.prepareStatement("INSERT INTO NOTES (DATE, NOTE) VALUES (?, ?);");
+    private Connection connection;
+
+    SQLHandler() throws SQLException, IOException {
+        File file = new File("data.db");
+        if (!file.exists()) {
+            InputStream in = null;
+            OutputStream out = null;
+            try {
+                in = getClass().getResourceAsStream("/db/sample.db");
+                out = new FileOutputStream(file);
+                int data;
+                while ((data = in.read()) != -1) out.write(data);
+            } catch (IOException e) {
+                throw new IOException("Failed to create database");
+            } finally {
+                if (in != null) try { in.close(); } catch (IOException ignored) {}
+                if (out != null) {
+                    try {
+                        out.flush();
+                        out.close();
+                    } catch (IOException ignored) {}
+                }
+            }
+        }
+        connection = DriverManager.getConnection(DATABASE_URL);
     }
 
-    protected static void disconnect() {
-        try {
-            statement.close();
-        } catch (SQLException e) {
-            e.printStackTrace();
+    private Statement getStatement() throws SQLException {
+        if (!connection.isValid(2)) connection = DriverManager.getConnection(DATABASE_URL);
+        return connection.createStatement();
+    }
+
+    private PreparedStatement getPreparedStatement() throws SQLException {
+        if (!connection.isValid(2)) connection = DriverManager.getConnection(DATABASE_URL);
+        return connection.prepareStatement(PREPARED_STATEMENT);
+    }
+
+    protected List<Note> getAllNotes() throws Exception {
+        Statement s = getStatement();
+        List<Note> list = new ArrayList<>();
+        ResultSet result = s.executeQuery("SELECT * FROM NOTES;");
+        while (result.next()) {
+            list.add(new Note(LocalDateTime.parse(result.getString(1)), result.getString(2)));
         }
+        s.close();
+        return list;
+    }
+
+    protected void addNote(Note note) throws Exception {
+        PreparedStatement ps = getPreparedStatement();
+        ps.setString(1, note.getDate().toString());
+        ps.setString(2, note.getText());
+        ps.executeUpdate();
+        ps.close();
+    }
+
+    protected void disconnect() {
         try {
             connection.close();
         } catch (SQLException e) {
             e.printStackTrace();
-        }
-    }
-
-    protected static List<Note> getAllNotes() {
-        List<Note> list = new ArrayList<>();
-        try {
-            ResultSet result = statement.executeQuery("SELECT * FROM NOTES;");
-            while (result.next()) {
-                list.add(new Note(result.getString(1), result.getString(2)));
-            }
-            return list;
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return null;
-    }
-
-    protected static boolean addNote(String date, String text) {
-        try {
-            preparedStatement.setString(1, date);
-            preparedStatement.setString(2, text);
-            preparedStatement.executeUpdate();
-            return true;
-        } catch (SQLException e) {
-            e.printStackTrace();
-            return false;
         }
     }
 }
